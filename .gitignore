@@ -1,23 +1,158 @@
+# ------------------------------
+# Dependencies
+# ------------------------------
 node_modules/
+jspm_packages/
+.pnp/
+.pnp.js
+
+# ------------------------------
+# Expo / React Native
+# ------------------------------
 .expo/
+.expo-shared/
+web-build/
 dist/
+build/
+
+# Metro / Bundler
+.metro-health-check*
+.metro-cache/
+*.bundle
+*.map
+
+# ------------------------------
+# Native build outputs
+# ------------------------------
+android/.gradle/
+android/app/build/
+android/build/
+android/captures/
+android/local.properties
+android/**/build/
+
+ios/build/
+ios/DerivedData/
+*.xcworkspace/xcuserdata/
+*.xcuserdatad/
+*.xcuserstate
+
+# CocoaPods
+ios/Pods/
+Podfile.lock
+
+# ------------------------------
+# Logs
+# ------------------------------
+logs/
+*.log
 npm-debug.*
+yarn-debug.*
+yarn-error.*
+pnpm-debug.*
+lerna-debug.*
+
+# ------------------------------
+# Environment / secrets
+# ------------------------------
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Keys / certificates / signing
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
 *.mobileprovision
+*.cer
+*.pem
+*.der
+*.bak
+.bak
+.bak.*
+
+# Google / Firebase / service config
+google-services.json
+GoogleService-Info.plist
+
+# ------------------------------
+# Cache / temp
+# ------------------------------
+.cache/
+.tmp/
+.temp/
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+*.pid
+*.seed
+*.orig
 *.orig.*
-web-build/
+*.rej
 
+# ------------------------------
+# Package manager files
+# ------------------------------
+package-lock.json.*
+yarn.lock.*
+pnpm-lock.yaml.*
 
+# Keep your real lockfile tracked normally:
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
 
+# ------------------------------
+# TypeScript / tooling
+# ------------------------------
+*.tsbuildinfo
+.eslintcache
 
-ios
-android
+# ------------------------------
+# Testing / coverage
+# ------------------------------
+coverage/
+.nyc_output/
+junit.xml
 
-# macOS
+# Detox / E2E / screenshots
+artifacts/
+e2e/artifacts/
+e2e/screenshots/
+e2e/videos/
+
+# ------------------------------
+# IDE / editor
+# ------------------------------
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.iml
+
+# ------------------------------
+# OS files
+# ------------------------------
 .DS_Store
+Thumbs.db
+Desktop.ini
 
-# Temporary files created by Metro to check the health of the file watcher
-.metro-health-check*
+# ------------------------------
+# Local-only files
+# ------------------------------
+*.local
+.local/
+.secret/
+secrets/
+
+# ------------------------------
+# Misc
+# ------------------------------
+release/
+debug/
+out/
