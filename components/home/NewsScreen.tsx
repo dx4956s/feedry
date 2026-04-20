@@ -11,7 +11,17 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
+import Animated, {
+  Easing,
+  FadeInDown,
+  FadeInLeft,
+  FadeInRight,
+  FadeInUp,
+  FadeOutDown,
+  FadeOutLeft,
+  FadeOutRight,
+  FadeOutUp,
+} from 'react-native-reanimated';
 
 import { getFeedCategories, getUserFeedLinks, type FeedLink } from '../../lib/feed-link-storage';
 import {
@@ -101,6 +111,46 @@ function createNewsAiMessage(role: 'assistant' | 'user', content: string): NewsA
   };
 }
 
+function getCategoryEnteringAnimation(direction: 'previous' | 'next') {
+  return direction === 'next'
+    ? FadeInRight.duration(180)
+        .easing(Easing.out(Easing.cubic))
+        .withInitialValues({ opacity: 0, transform: [{ translateX: 16 }] })
+    : FadeInLeft.duration(180)
+        .easing(Easing.out(Easing.cubic))
+        .withInitialValues({ opacity: 0, transform: [{ translateX: -16 }] });
+}
+
+function getCategoryExitingAnimation(direction: 'previous' | 'next') {
+  return direction === 'next'
+    ? FadeOutLeft.duration(110)
+        .easing(Easing.in(Easing.cubic))
+        .withInitialValues({ opacity: 1, transform: [{ translateX: 0 }] })
+    : FadeOutRight.duration(110)
+        .easing(Easing.in(Easing.cubic))
+        .withInitialValues({ opacity: 1, transform: [{ translateX: 0 }] });
+}
+
+function getArticleEnteringAnimation(direction: 'previous' | 'next') {
+  return direction === 'next'
+    ? FadeInUp.duration(240)
+        .easing(Easing.out(Easing.cubic))
+        .withInitialValues({ opacity: 0, transform: [{ translateY: 44 }] })
+    : FadeInDown.duration(240)
+        .easing(Easing.out(Easing.cubic))
+        .withInitialValues({ opacity: 0, transform: [{ translateY: -44 }] });
+}
+
+function getArticleExitingAnimation(direction: 'previous' | 'next') {
+  return direction === 'next'
+    ? FadeOutUp.duration(110)
+        .easing(Easing.in(Easing.cubic))
+        .withInitialValues({ opacity: 1, transform: [{ translateY: 0 }] })
+    : FadeOutDown.duration(110)
+        .easing(Easing.in(Easing.cubic))
+        .withInitialValues({ opacity: 1, transform: [{ translateY: 0 }] });
+}
+
 export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsScreenProps) {
   const [activeCategory, setActiveCategory] = useState('All');
   const [activeDateFilter, setActiveDateFilter] = useState('All Dates');
@@ -127,6 +177,9 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
   const articleScrollOffsetYRef = useRef(0);
   const articleScrollViewportHeightRef = useRef(0);
   const articleScrollContentHeightRef = useRef(0);
+  const articleTransitionDirectionRef = useRef<'previous' | 'next'>('next');
+  const categoryTransitionDirectionRef = useRef<'previous' | 'next'>('next');
+  const contentTransitionKindRef = useRef<'article' | 'category'>('article');
   const lastAiOpenSignalRef = useRef(aiOpenSignal);
   const lastAiInitializedArticleIdRef = useRef<string | null>(null);
   const previousArticleIdRef = useRef<string | null>(null);
@@ -518,6 +571,8 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
           ? Math.max(activeCategoryIndex - 1, 0)
           : Math.min(activeCategoryIndex + 1, categoryOptions.length - 1);
 
+      categoryTransitionDirectionRef.current = direction;
+      contentTransitionKindRef.current = 'category';
       setActiveCategory(categoryOptions[nextIndex] ?? 'All');
       setActiveDateFilter('All Dates');
       setIsDateMenuOpen(false);
@@ -541,6 +596,8 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
         return;
       }
 
+      articleTransitionDirectionRef.current = direction;
+      contentTransitionKindRef.current = 'article';
       markArticleAsRead(currentArticle.id);
       setCurrentArticleIndex(nextIndex);
     },
@@ -672,15 +729,20 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
           {feedLinks.length > 0 ? (
             <View className="mb-2 items-center gap-1.5">
               <View className="flex-row items-center gap-2 self-center">
-                <View className="self-center rounded-full border border-[#d8c8af] bg-[#f4ebdc] px-4 py-1.5">
-                  <View className="flex-row items-center justify-center gap-2">
-                    <View className="h-px w-4 bg-[#d2c1a7]" />
-                    <Text className="text-[9px] font-semibold uppercase tracking-[2px] text-[#927f6d]">
-                      {activeCategory}
-                    </Text>
-                    <View className="h-px w-4 bg-[#d2c1a7]" />
+                <Animated.View
+                  key={activeCategory}
+                  entering={getCategoryEnteringAnimation(categoryTransitionDirectionRef.current)}
+                  exiting={getCategoryExitingAnimation(categoryTransitionDirectionRef.current)}>
+                  <View className="self-center rounded-full border border-[#d8c8af] bg-[#f4ebdc] px-4 py-1.5">
+                    <View className="flex-row items-center justify-center gap-2">
+                      <View className="h-px w-4 bg-[#d2c1a7]" />
+                      <Text className="text-[9px] font-semibold uppercase tracking-[2px] text-[#927f6d]">
+                        {activeCategory}
+                      </Text>
+                      <View className="h-px w-4 bg-[#d2c1a7]" />
+                    </View>
                   </View>
-                </View>
+                </Animated.View>
 
                 {!unreadOnly && dateOptions.length > 1 ? (
                   <View className="relative">
@@ -791,12 +853,20 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
               </Text>
             </View>
           ) : currentArticle ? (
-            <Animated.View className="flex-1" layout={LinearTransition.duration(180)}>
+            <View className="relative flex-1 overflow-hidden">
               <Animated.View
                 key={`${activeCategory}:${currentArticle.id}`}
-                entering={FadeIn.duration(140)}
-                exiting={FadeOut.duration(110)}
-                className={`flex-1 rounded-3xl border p-5 ${
+                entering={
+                  contentTransitionKindRef.current === 'category'
+                    ? getCategoryEnteringAnimation(categoryTransitionDirectionRef.current)
+                    : getArticleEnteringAnimation(articleTransitionDirectionRef.current)
+                }
+                exiting={
+                  contentTransitionKindRef.current === 'category'
+                    ? getCategoryExitingAnimation(categoryTransitionDirectionRef.current)
+                    : getArticleExitingAnimation(articleTransitionDirectionRef.current)
+                }
+                className={`absolute inset-0 rounded-3xl border p-5 ${
                   !unreadOnly && isCurrentArticleRead
                     ? 'border-[#cbb89b] bg-[#efe4cf]'
                     : 'border-[#3a2d22] bg-[#fbf7ef]'
@@ -888,7 +958,7 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
                   ) : null}
                 </View>
               </Animated.View>
-            </Animated.View>
+            </View>
           ) : currentFailure ? (
             <View className="flex-1 justify-center">
               <View className="rounded-3xl border border-red-200 bg-[#fff1ef] p-5">

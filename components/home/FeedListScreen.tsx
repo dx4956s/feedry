@@ -14,6 +14,10 @@ import {
 } from 'react-native';
 
 import {
+  getAuthorCuratedFeeds,
+  type AuthorCuratedFeed,
+} from '../../lib/author-curated-feed-storage';
+import {
   type FeedLink,
   createUserFeedLink,
   deleteUserFeedCategory,
@@ -43,13 +47,15 @@ function normalizeUrl(value: string) {
   return `https://${trimmedValue}`;
 }
 
-type FeedListPage = 'rss-links' | 'categories';
+type FeedListPage = 'rss-links' | 'categories' | 'curated';
 
 type FeedListScreenProps = {
   user: User;
 };
 
 export function FeedListScreen({ user }: FeedListScreenProps) {
+  const [authorCuratedError, setAuthorCuratedError] = useState('');
+  const [authorCuratedFeeds, setAuthorCuratedFeeds] = useState<AuthorCuratedFeed[]>([]);
   const [categoryInput, setCategoryInput] = useState('');
   const [feedLinks, setFeedLinks] = useState<FeedLink[]>([]);
   const [feedTitle, setFeedTitle] = useState('');
@@ -62,18 +68,34 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
   const [activePage, setActivePage] = useState<FeedListPage>('rss-links');
 
   useEffect(() => {
-    async function loadFeedLinks() {
-      try {
-        const links = await getUserFeedLinks(user);
-        setFeedLinks(links);
-      } catch {
+    async function loadFeedData() {
+      const [userFeedResult, authorCuratedResult] = await Promise.allSettled([
+        getUserFeedLinks(user),
+        getAuthorCuratedFeeds(),
+      ]);
+
+      if (userFeedResult.status === 'fulfilled') {
+        setFeedLinks(userFeedResult.value);
+      } else {
         setFeedLinks([]);
-      } finally {
-        setIsLoading(false);
       }
+
+      if (authorCuratedResult.status === 'fulfilled') {
+        setAuthorCuratedFeeds(authorCuratedResult.value);
+        setAuthorCuratedError('');
+      } else {
+        setAuthorCuratedFeeds([]);
+        setAuthorCuratedError(
+          authorCuratedResult.reason instanceof Error
+            ? authorCuratedResult.reason.message
+            : 'Unable to load author curated feeds.'
+        );
+      }
+
+      setIsLoading(false);
     }
 
-    void loadFeedLinks();
+    void loadFeedData();
   }, [user]);
 
   function openAddModal() {
@@ -223,6 +245,28 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
     }
   }
 
+  async function handleAddAuthorCuratedFeed(feed: AuthorCuratedFeed) {
+    setIsSaving(true);
+
+    try {
+      const createdLink = await createUserFeedLink(user, {
+        category: feed.category,
+        title: feed.title,
+        url: feed.url,
+      });
+
+      setFeedLinks((currentLinks) => [createdLink, ...currentLinks]);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to add this curated feed to your list.';
+      Alert.alert('Add failed', message);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  const savedFeedUrlSet = new Set(feedLinks.map((link) => link.url));
+
   return (
     <>
       <View className="flex-1 rounded-3xl border border-stone-300 bg-[#fbf8f2] p-4">
@@ -236,7 +280,7 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
           <View className="flex-row gap-2">
             <TouchableOpacity
               activeOpacity={0.9}
-              className={`flex-1 rounded-xl px-4 py-3 ${
+              className={`flex-1 rounded-xl px-3 py-3 ${
                 activePage === 'rss-links' ? 'bg-stone-900' : 'bg-transparent'
               }`}
               onPress={() => setActivePage('rss-links')}>
@@ -250,7 +294,7 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
 
             <TouchableOpacity
               activeOpacity={0.9}
-              className={`flex-1 rounded-xl px-4 py-3 ${
+              className={`flex-1 rounded-xl px-3 py-3 ${
                 activePage === 'categories' ? 'bg-stone-900' : 'bg-transparent'
               }`}
               onPress={() => setActivePage('categories')}>
@@ -259,6 +303,20 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
                   activePage === 'categories' ? 'text-[#f5f1e8]' : 'text-stone-700'
                 }`}>
                 Categories
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.9}
+              className={`flex-1 rounded-xl px-3 py-3 ${
+                activePage === 'curated' ? 'bg-stone-900' : 'bg-transparent'
+              }`}
+              onPress={() => setActivePage('curated')}>
+              <Text
+                className={`text-center text-xs font-semibold uppercase tracking-wider ${
+                  activePage === 'curated' ? 'text-[#f5f1e8]' : 'text-stone-700'
+                }`}>
+                Curated
               </Text>
             </TouchableOpacity>
           </View>
@@ -289,36 +347,38 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
                   key={link.id}
                   className="rounded-2xl border border-stone-200 bg-[#f8f3ea] p-4">
                   <View className="flex-row items-start justify-between gap-3">
-                    <View className="flex-1">
-                      <Text className="text-lg font-bold tracking-tight text-stone-950">
-                        {link.title}
-                      </Text>
-                      <Text className="mt-2 text-xs font-semibold uppercase tracking-wider text-stone-500">
-                        {link.category}
-                      </Text>
-                      <Text
-                        className="mt-3 text-sm leading-6 text-stone-800"
-                        numberOfLines={1}
-                        ellipsizeMode="tail">
-                        {link.url}
-                      </Text>
+                    <View className="min-w-0 flex-1">
+                      <View>
+                        <Text className="text-lg font-bold tracking-tight text-stone-950">
+                          {link.title}
+                        </Text>
+                        <Text className="mt-2 text-xs font-semibold uppercase tracking-wider text-stone-500">
+                          {link.category}
+                        </Text>
+                        <Text
+                          className="mt-3 text-sm leading-6 text-stone-800"
+                          numberOfLines={1}
+                          ellipsizeMode="tail">
+                          {link.url}
+                        </Text>
+                      </View>
                     </View>
-                  </View>
 
-                  <View className="mt-4 flex-row gap-3">
-                    <TouchableOpacity
-                      activeOpacity={0.9}
-                      className="h-11 w-11 items-center justify-center rounded-xl border border-stone-300 bg-[#fbf8f2]"
-                      onPress={() => openEditModal(link)}>
-                      <Ionicons color="#57534e" name="create-outline" size={18} />
-                    </TouchableOpacity>
+                    <View className="flex-row items-center gap-3 pt-1">
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        className="h-11 w-11 items-center justify-center rounded-xl border border-stone-300 bg-[#fbf8f2]"
+                        onPress={() => openEditModal(link)}>
+                        <Ionicons color="#57534e" name="create-outline" size={18} />
+                      </TouchableOpacity>
 
-                    <TouchableOpacity
-                      activeOpacity={0.9}
-                      className="h-11 w-11 items-center justify-center rounded-xl border border-stone-900 bg-stone-900"
-                      onPress={() => handleDeleteFeed(link.id)}>
-                      <Ionicons color="#f5f1e8" name="trash-outline" size={18} />
-                    </TouchableOpacity>
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        className="h-11 w-11 items-center justify-center rounded-xl border border-stone-900 bg-stone-900"
+                        onPress={() => handleDeleteFeed(link.id)}>
+                        <Ionicons color="#f5f1e8" name="trash-outline" size={18} />
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
               ))}
@@ -332,6 +392,75 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
                   Add Feed
                 </Text>
               </TouchableOpacity>
+            </ScrollView>
+          )
+        ) : activePage === 'curated' ? (
+          authorCuratedFeeds.length === 0 ? (
+            <View className="flex-1 items-center justify-center px-2">
+              <Text className="text-center text-2xl font-bold tracking-tight text-stone-950">
+                No curated feeds added
+              </Text>
+              <Text className="mt-3 text-center text-sm leading-6 text-stone-600">
+                Add rows in the `authors_curated_feeds` Supabase table and they will appear here.
+              </Text>
+              {authorCuratedError ? (
+                <Text className="mt-3 text-center text-sm leading-6 text-red-700">
+                  {authorCuratedError}
+                </Text>
+              ) : null}
+            </View>
+          ) : (
+            <ScrollView bounces={false} contentContainerClassName="gap-3 pb-6">
+              {authorCuratedError ? (
+                <Text className="text-sm leading-6 text-red-700">{authorCuratedError}</Text>
+              ) : null}
+
+              {authorCuratedFeeds.map((feed) => {
+                const isAdded = savedFeedUrlSet.has(feed.url);
+
+                return (
+                  <View
+                    key={feed.id}
+                    className="rounded-2xl border border-stone-200 bg-[#f8f3ea] p-4">
+                    <View className="flex-row items-start justify-between gap-3">
+                      <View className="flex-1">
+                        <Text className="text-lg font-bold tracking-tight text-stone-950">
+                          {feed.title}
+                        </Text>
+                        <Text className="mt-2 text-xs font-semibold uppercase tracking-wider text-stone-500">
+                          {feed.category}
+                        </Text>
+                        <Text
+                          className="mt-3 text-sm leading-6 text-stone-800"
+                          numberOfLines={1}
+                          ellipsizeMode="tail">
+                          {feed.url}
+                        </Text>
+                      </View>
+
+                      <View className="flex-row items-center gap-3 pt-1">
+                        <TouchableOpacity
+                          activeOpacity={0.9}
+                          className={`h-11 w-11 items-center justify-center rounded-xl border ${
+                            isAdded
+                              ? 'border-stone-300 bg-stone-200'
+                              : 'border-stone-900 bg-stone-900'
+                          }`}
+                          disabled={isAdded || isSaving}
+                          onPress={() => {
+                            void handleAddAuthorCuratedFeed(feed);
+                          }}>
+                          <Ionicons
+                            color={isAdded ? '#78716c' : '#f5f1e8'}
+                            name={isAdded ? 'checkmark' : 'add'}
+                            size={18}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
             </ScrollView>
           )
         ) : feedCategories.length === 0 ? (
@@ -409,19 +538,24 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
                   value={feedTitle}
                 />
 
-                <TextInput
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  className="h-14 rounded-2xl border border-stone-300 bg-[#f6f0e5] px-4 text-base text-stone-950"
-                  keyboardType="url"
-                  multiline={false}
-                  numberOfLines={1}
-                  onChangeText={setFeedUrl}
-                  placeholder="https://example.com/rss.xml"
-                  placeholderTextColor="#78716c"
-                  scrollEnabled
-                  value={feedUrl}
-                />
+                <View className="h-14 flex-row items-center rounded-2xl border border-stone-300 bg-[#f6f0e5] px-4">
+                  <TextInput
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    blurOnSubmit
+                    className="flex-1 text-base text-stone-950"
+                    keyboardType="url"
+                    multiline={false}
+                    numberOfLines={1}
+                    onChangeText={setFeedUrl}
+                    placeholder="https://example.com/rss.xml"
+                    placeholderTextColor="#78716c"
+                    returnKeyType="done"
+                    scrollEnabled
+                    textAlignVertical="center"
+                    value={feedUrl}
+                  />
+                </View>
 
                 <View className="gap-2">
                   <View className="h-14 flex-row items-center rounded-2xl border border-stone-300 bg-[#f6f0e5] px-4">

@@ -1,6 +1,15 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { View } from 'react-native';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+  SlideInLeft,
+  SlideInRight,
+  SlideOutLeft,
+  SlideOutRight,
+} from 'react-native-reanimated';
 import { BasicScreenCard } from './BasicScreenCard';
 import { BottomNavBar, type NavItem } from './BottomNavBar';
 import { FeedListScreen } from './FeedListScreen';
@@ -15,6 +24,8 @@ export function HomeScreen({ user: _user }: HomeScreenProps) {
   const [activeTab, setActiveTab] = useState<NavItem>('Home');
   const [aiOpenSignal, setAiOpenSignal] = useState(0);
   const isAiEnabled = activeTab === 'Home' || activeTab === 'Feed';
+  const orderedTabs: NavItem[] = ['Home', 'Feed', 'Feed List', 'Settings'];
+  const previousTabRef = useRef<NavItem>('Home');
 
   function handleNavPress(tab: NavItem) {
     if (tab === 'AI') {
@@ -25,21 +36,49 @@ export function HomeScreen({ user: _user }: HomeScreenProps) {
       return;
     }
 
+    previousTabRef.current = activeTab;
     setActiveTab(tab);
+  }
+
+  const activeTabIndex = orderedTabs.indexOf(activeTab);
+  const previousTabIndex = orderedTabs.indexOf(previousTabRef.current);
+  const isMovingForward = activeTabIndex >= previousTabIndex;
+
+  function renderActiveScreen() {
+    if (activeTab === 'Home') {
+      return <NewsScreen aiOpenSignal={aiOpenSignal} unreadOnly user={_user} />;
+    }
+
+    if (activeTab === 'Feed') {
+      return <NewsScreen aiOpenSignal={aiOpenSignal} user={_user} />;
+    }
+
+    if (activeTab === 'Feed List') {
+      return <FeedListScreen user={_user} />;
+    }
+
+    return (
+      <BasicScreenCard>
+        <UserSettingsScreen user={_user} />
+      </BasicScreenCard>
+    );
   }
 
   return (
     <View className="flex-1 bg-[#f5f1e8] px-4 pb-28 pt-4 md:px-5 md:pt-5">
-      {activeTab === 'Home' ? (
-        <NewsScreen aiOpenSignal={aiOpenSignal} unreadOnly user={_user} />
-      ) : null}
-      {activeTab === 'Feed' ? <NewsScreen aiOpenSignal={aiOpenSignal} user={_user} /> : null}
-      {activeTab === 'Feed List' ? <FeedListScreen user={_user} /> : null}
-      {activeTab === 'Settings' ? (
-        <BasicScreenCard>
-          <UserSettingsScreen user={_user} />
-        </BasicScreenCard>
-      ) : null}
+      <Animated.View
+        key={activeTab}
+        className="flex-1"
+        entering={isMovingForward ? SlideInRight.duration(220) : SlideInLeft.duration(220)}
+        exiting={isMovingForward ? SlideOutLeft.duration(180) : SlideOutRight.duration(180)}
+        layout={LinearTransition.duration(180)}>
+        <Animated.View
+          className="flex-1"
+          entering={FadeIn.duration(180)}
+          exiting={FadeOut.duration(120)}>
+          {renderActiveScreen()}
+        </Animated.View>
+      </Animated.View>
       <BottomNavBar activeTab={activeTab} aiEnabled={isAiEnabled} onTabPress={handleNavPress} />
     </View>
   );

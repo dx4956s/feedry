@@ -123,6 +123,58 @@ function getFirstNonEmptyValue(...values: unknown[]) {
   return values.map((value) => getTextValue(value)).find(Boolean) ?? '';
 }
 
+function getBestTitle(node: ParsedXmlNode) {
+  return (
+    getFirstNonEmptyValue(
+      node.title,
+      node.headline,
+      node.name,
+      node.subject,
+      node.label,
+      node['media:title']
+    ) || 'Untitled article'
+  );
+}
+
+function getBestLink(node: ParsedXmlNode) {
+  return getFirstNonEmptyValue(node.link, node.guid, node.id, node.url);
+}
+
+function getBestSummary(node: ParsedXmlNode) {
+  return (
+    getFirstNonEmptyValue(
+      getSummaryValue(node.description),
+      getSummaryValue(node.summary),
+      getSummaryValue(node.subtitle),
+      getSummaryValue(node.encoded),
+      getSummaryValue(node['content:encoded']),
+      getSummaryValue(node.content),
+      getSummaryValue(node.contentSnippet),
+      getSummaryValue(node.excerpt),
+      getSummaryValue(node.body),
+      getSummaryValue(node.fulltext),
+      getSummaryValue(node['media:description'])
+    ) || ''
+  );
+}
+
+function getBestPublishedAt(node: ParsedXmlNode) {
+  return (
+    getFirstNonEmptyValue(
+      node.pubDate,
+      node.published,
+      node.updated,
+      node.date,
+      node.publishedAt,
+      node.isoDate,
+      node.issued,
+      node.modified,
+      node.created,
+      node['dc:date']
+    ) || null
+  );
+}
+
 function getImageUrlFromNode(node: ParsedXmlNode) {
   const enclosureNodes = [
     ...asArray(node.enclosure),
@@ -202,17 +254,11 @@ function parseRssItems(source: FeedLink, channel: ParsedXmlNode) {
   return items
     .map((item) => {
       const itemNode = item as ParsedXmlNode;
-      const title = getFirstNonEmptyValue(itemNode.title, 'Untitled article') || 'Untitled article';
-      const link = getFirstNonEmptyValue(itemNode.link, itemNode.guid);
+      const title = getBestTitle(itemNode);
+      const link = getBestLink(itemNode);
       const imageUrl = getImageUrlFromNode(itemNode) || null;
-      const summary =
-        getFirstNonEmptyValue(
-          getSummaryValue(itemNode.description),
-          getSummaryValue(itemNode.encoded),
-          getSummaryValue(itemNode.content)
-        ) || '';
-      const publishedAt =
-        getFirstNonEmptyValue(itemNode.pubDate, itemNode.date, itemNode.published) || null;
+      const summary = getBestSummary(itemNode);
+      const publishedAt = getBestPublishedAt(itemNode);
 
       return {
         category: source.category,
@@ -236,17 +282,11 @@ function parseAtomEntries(source: FeedLink, feed: ParsedXmlNode) {
   return entries
     .map((entry) => {
       const entryNode = entry as ParsedXmlNode;
-      const title =
-        getFirstNonEmptyValue(entryNode.title, 'Untitled article') || 'Untitled article';
+      const title = getBestTitle(entryNode);
       const link = getAtomLink(entryNode);
       const imageUrl = getImageUrlFromNode(entryNode) || null;
-      const summary =
-        getFirstNonEmptyValue(
-          getSummaryValue(entryNode.summary),
-          getSummaryValue(entryNode.content)
-        ) || '';
-      const publishedAt =
-        getFirstNonEmptyValue(entryNode.published, entryNode.updated, entryNode.date) || null;
+      const summary = getBestSummary(entryNode);
+      const publishedAt = getBestPublishedAt(entryNode);
 
       return {
         category: source.category,

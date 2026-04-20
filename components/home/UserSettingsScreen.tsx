@@ -157,16 +157,24 @@ export function UserSettingsScreen({ user }: UserSettingsScreenProps) {
             <Text className="text-xs font-semibold uppercase tracking-widest text-stone-500">
               OpenAI Key
             </Text>
-            <TextInput
-              autoCapitalize="none"
-              autoCorrect={false}
-              className="h-14 rounded-2xl border border-stone-300 bg-[#fbf8f2] px-4 text-base text-stone-950"
-              onChangeText={setOpenAiKey}
-              placeholder="sk-..."
-              placeholderTextColor="#78716c"
-              secureTextEntry
-              value={openAiKey}
-            />
+            <View className="h-14 flex-row items-center rounded-2xl border border-stone-300 bg-[#fbf8f2] px-4">
+              <TextInput
+                autoCapitalize="none"
+                autoCorrect={false}
+                blurOnSubmit
+                className="flex-1 text-base text-stone-950"
+                multiline={false}
+                numberOfLines={1}
+                onChangeText={setOpenAiKey}
+                placeholder="sk-..."
+                placeholderTextColor="#78716c"
+                returnKeyType="done"
+                scrollEnabled
+                secureTextEntry
+                textAlignVertical="center"
+                value={openAiKey}
+              />
+            </View>
             <Text className="text-xs leading-5 text-stone-500">
               Your OpenAI API key is stored locally on this device and is not shared anywhere.
             </Text>

@@ -14,7 +14,7 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { useAuthStore } from '../../stores/auth-store';
 
-const previewTopics = ['Unread', 'Tech', 'World', 'AI Briefs'];
+const previewTopics = ['Unread Queue', 'Top Stories', 'World Scan', 'AI Companion'];
 const weekdayFormatter = new Intl.DateTimeFormat('en-US', { weekday: 'long' });
 const dateFormatter = new Intl.DateTimeFormat('en-US', {
   month: 'long',
@@ -35,7 +35,7 @@ export function LoginScreen() {
   const now = new Date();
   const editionLabel = `${weekdayFormatter.format(now)} Edition`;
   const currentDateLabel = dateFormatter.format(now);
-  const submitLabel = 'Open Feedry';
+  const submitLabel = 'Continue';
 
   async function handleSubmit() {
     const result = await signInWithEmail(email, password);
@@ -51,7 +51,7 @@ export function LoginScreen() {
   }
 
   return (
-    <View className="flex-1 bg-[#f3eee2]">
+    <View className="flex-1 bg-[#f5f1e8]">
       <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
         <KeyboardAwareScrollView
           bounces={false}
@@ -64,7 +64,7 @@ export function LoginScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
           <View className="flex-1">
-            <View className="border-b border-stone-400 bg-[#f5f1e8] px-5 pb-4 pt-4 md:px-6">
+            <View className="border-b border-[#cdbca1] bg-[#f5f1e8] px-5 pb-4 pt-4 md:px-6">
               <View className="border-y border-stone-400 py-2">
                 <View className="flex-row items-center justify-between">
                   <Text className="text-[10px] font-semibold uppercase tracking-[2.6px] text-stone-600">
@@ -96,12 +96,12 @@ export function LoginScreen() {
               <View className="mt-3 flex-row items-start justify-between gap-4">
                 <View className="flex-1">
                   <Text className="text-[26px] font-bold leading-8 tracking-tight text-stone-950">
-                    Catch up before the feed gets away.
+                    Read the day like it was printed for you.
                   </Text>
 
                   <Text className="mt-2 text-sm leading-6 text-stone-700">
-                    A newspaper-style reader for unread stories, category scanning, and AI summaries
-                    that stay tied to the original reporting.
+                    A calm reading desk for daily news, built around clean article cards, category
+                    browsing, and focused story follow-up.
                   </Text>
                 </View>
 
@@ -112,19 +112,18 @@ export function LoginScreen() {
                   <Text className="mt-1 text-[11px] leading-5 text-stone-800">
                     {isSupabaseConfigured ? 'On Press' : 'Held'}
                   </Text>
-
-                  <Text className="mt-3 text-[10px] font-semibold uppercase tracking-[2px] text-stone-500">
-                    Desk
-                  </Text>
-                  <Text className="mt-1 text-[11px] leading-5 text-stone-700">Reader Access</Text>
                 </View>
               </View>
 
               <View className="mt-4 border-y border-stone-300 py-2">
-                <View className="flex-row flex-wrap gap-2">
+                <View className="flex-row items-center justify-between gap-2">
                   {previewTopics.map((topic) => (
-                    <View key={topic} className="border border-stone-300 bg-[#e9e1d3] px-3 py-1.5">
-                      <Text className="text-[10px] font-semibold uppercase tracking-[1.8px] text-stone-700">
+                    <View
+                      key={topic}
+                      className="flex-1 rounded-full border border-[#d8c8af] bg-[#ede2cf] px-2 py-1.5">
+                      <Text
+                        className="text-center text-[9px] font-semibold uppercase tracking-[1.4px] text-stone-700"
+                        numberOfLines={1}>
                         {topic}
                       </Text>
                     </View>
@@ -133,66 +132,66 @@ export function LoginScreen() {
               </View>
             </View>
 
-            <View className="flex-[1.18] bg-[#111111] px-5 py-5 md:px-6">
+            <View className="flex-[1.18] bg-[#eadfcb] px-5 py-5 md:px-6">
               <View className="flex-1 items-center justify-center">
-                <View className="w-full max-w-xl border border-stone-800 bg-[#0d0d0d]">
-                  <View className="border-b border-stone-800 px-4 py-2.5">
+                <View className="w-full max-w-xl overflow-hidden rounded-[28px] border border-[#3a2d22] bg-[#fbf7ef]">
+                  <View className="border-b border-[#cdbca1] bg-[#f2e6cf] px-4 py-3">
                     <View className="flex-row items-center justify-between">
-                      <Text className="text-[9px] font-semibold uppercase tracking-[2.2px] text-stone-500">
-                        Late Edition Access
+                      <Text className="text-[9px] font-semibold uppercase tracking-[2.2px] text-[#7c6958]">
+                        Front Desk Access
                       </Text>
-                      <Text className="text-[9px] uppercase tracking-[2px] text-stone-600">
-                        Member Desk
+                      <Text className="text-[9px] uppercase tracking-[2px] text-[#8f7e6f]">
+                        Morning Edition
                       </Text>
                     </View>
                   </View>
 
-                  <View className="border-b border-stone-800 px-4 py-4">
-                    <Text className="text-center text-[10px] font-semibold uppercase tracking-[2.6px] text-amber-300">
-                      Return to your queue
-                    </Text>
-                    <Text className="mt-2 text-center text-2xl font-bold tracking-tight text-[#f5f1e8]">
-                      Sign in to continue
-                    </Text>
-                    <Text className="mt-2 text-center text-xs leading-5 text-stone-400">
-                      Resume unread tracking, jump between sections, and open AI briefs without
-                      losing the feel of a structured front page.
-                    </Text>
+                  <View className="border-b border-[#d8c8af] px-4 py-4">
+                    <View className="mb-3 flex-row items-start justify-between gap-4">
+                      <View className="flex-1">
+                        <Text className="text-[10px] font-semibold uppercase tracking-[2.6px] text-[#927240]">
+                          Feedry Access
+                        </Text>
+                        <Text className="mt-2 text-2xl font-bold tracking-tight text-[#1f1712]">
+                          Sign in or create account
+                        </Text>
+                      </View>
+                    </View>
                   </View>
 
                   <View className="px-4 py-4">
                     <View className="gap-3">
                       <View className="gap-1.5">
-                        <Text className="text-[10px] font-semibold uppercase tracking-[2px] text-stone-500">
+                        <Text className="text-[10px] font-semibold uppercase tracking-[2px] text-[#7b6858]">
                           Email Address
                         </Text>
                         <TextInput
                           autoCapitalize="none"
                           autoCorrect={false}
-                          className="h-12 border border-stone-700 bg-[#151515] px-4 text-sm text-[#f5f1e8]"
+                          className="h-12 rounded-2xl border border-[#d8c8af] bg-[#f8f1e4] px-4 text-sm text-[#1f1712]"
                           keyboardType="email-address"
                           onChangeText={setEmail}
                           placeholder="you@newsroom.com"
-                          placeholderTextColor="#78716c"
+                          placeholderTextColor="#8f7e6f"
                           returnKeyType="next"
                           value={email}
                         />
                       </View>
 
                       <View className="gap-1.5">
-                        <Text className="text-[10px] font-semibold uppercase tracking-[2px] text-stone-500">
+                        <Text className="text-[10px] font-semibold uppercase tracking-[2px] text-[#7b6858]">
                           Password
                         </Text>
                         <TextInput
                           autoCapitalize="none"
                           autoCorrect={false}
-                          className="h-12 border border-stone-700 bg-[#151515] px-4 text-sm text-[#f5f1e8]"
+                          className="h-12 rounded-2xl border border-[#d8c8af] bg-[#f8f1e4] px-4 text-sm text-[#1f1712]"
                           onChangeText={setPassword}
                           onSubmitEditing={() => {
                             void handleSubmit();
                           }}
                           placeholder="Password"
-                          placeholderTextColor="#78716c"
+                          placeholderTextColor="#8f7e6f"
                           returnKeyType="go"
                           secureTextEntry
                           value={password}
@@ -200,25 +199,25 @@ export function LoginScreen() {
                       </View>
 
                       {error ? (
-                        <Text className="text-xs leading-5 text-rose-400">{error}</Text>
+                        <Text className="text-xs leading-5 text-rose-700">{error}</Text>
                       ) : null}
 
-                      <View className="mt-1 border-t border-stone-800 pt-3">
+                      <View className="mt-1 border-t border-[#d8c8af] pt-3">
                         <TouchableOpacity
                           activeOpacity={0.9}
-                          className={`h-12 flex-row items-center justify-center border px-5 ${
+                          className={`h-12 flex-row items-center justify-center rounded-2xl border px-5 ${
                             isBusy || !isSupabaseConfigured
-                              ? 'border-stone-700 bg-stone-700'
-                              : 'border-[#f59e0b] bg-[#f59e0b]'
+                              ? 'border-stone-300 bg-stone-300'
+                              : 'border-[#2b221c] bg-[#2b221c]'
                           }`}
                           disabled={isBusy || !isSupabaseConfigured}
                           onPress={() => {
                             void handleSubmit();
                           }}>
                           {isBusy ? (
-                            <ActivityIndicator color="#0c0a09" />
+                            <ActivityIndicator color="#f2e6cf" />
                           ) : (
-                            <Text className="text-sm font-semibold uppercase tracking-[1.5px] text-stone-950">
+                            <Text className="text-sm font-semibold uppercase tracking-[1.5px] text-[#f2e6cf]">
                               {submitLabel}
                             </Text>
                           )}
@@ -227,8 +226,8 @@ export function LoginScreen() {
                     </View>
                   </View>
 
-                  <View className="border-t border-stone-800 px-4 py-2.5">
-                    <Text className="text-center text-[9px] uppercase tracking-[2px] text-stone-600">
+                  <View className="border-t border-[#d8c8af] bg-[#f6edde] px-4 py-3">
+                    <Text className="text-center text-[9px] uppercase tracking-[2px] text-[#7c6958]">
                       Feedry • Curated Reading Interface
                     </Text>
                   </View>
@@ -249,7 +248,7 @@ export function LoginScreen() {
               User not present
             </Text>
             <Text className="mt-3 text-sm leading-6 text-stone-700">
-              No account was found for this email. Create one now?
+              No account was found for this email. Create one now and continue into Feedry?
             </Text>
 
             <View className="mt-5 flex-row gap-3">
