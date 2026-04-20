@@ -1,4 +1,5 @@
 import type { Session, User } from '@supabase/supabase-js';
+import * as WebBrowser from 'expo-web-browser';
 import { create } from 'zustand';
 
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
@@ -10,6 +11,7 @@ type AuthState = {
   initialized: boolean;
   isBusy: boolean;
   session: Session | null;
+  signInWithGoogle: () => Promise<'success' | 'cancelled' | 'error'>;
   signInWithEmail: (
     email: string,
     password: string
@@ -40,6 +42,23 @@ function normalizeCredentials(email: string, password: string) {
     password,
   };
 }
+
+const googleRedirectUrl = 'feedry://auth/callback';
+
+function getOAuthCallbackParams(url: string) {
+  const normalizedUrl = url.replace('#', '?');
+  const parsedUrl = new URL(normalizedUrl);
+
+  return {
+    accessToken: parsedUrl.searchParams.get('access_token'),
+    code: parsedUrl.searchParams.get('code'),
+    errorCode: parsedUrl.searchParams.get('error_code'),
+    errorDescription: parsedUrl.searchParams.get('error_description'),
+    refreshToken: parsedUrl.searchParams.get('refresh_token'),
+  };
+}
+
+WebBrowser.maybeCompleteAuthSession();
 
 export const useAuthStore = create<AuthState>((set) => ({
   error: null,
@@ -125,6 +144,75 @@ export const useAuthStore = create<AuthState>((set) => ({
       isMounted = false;
       subscription.unsubscribe();
     };
+  },
+  signInWithGoogle: async () => {
+    if (!isSupabaseConfigured) {
+      set({ error: 'Missing Supabase env vars.' });
+      return 'error';
+    }
+
+    set({ error: null, isBusy: true });
+
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: googleRedirectUrl,
+          skipBrowserRedirect: true,
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data?.url) {
+        throw new Error('Unable to start Google sign-in.');
+      }
+
+      const result = await WebBrowser.openAuthSessionAsync(data.url, googleRedirectUrl);
+
+      if (result.type !== 'success') {
+        return 'cancelled';
+      }
+
+      const { accessToken, code, errorCode, errorDescription, refreshToken } =
+        getOAuthCallbackParams(result.url);
+
+      if (errorCode) {
+        throw new Error(errorDescription ?? errorCode);
+      }
+
+      if (code) {
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+
+        if (exchangeError) {
+          throw exchangeError;
+        }
+
+        return 'success';
+      }
+
+      if (accessToken && refreshToken) {
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+
+        if (sessionError) {
+          throw sessionError;
+        }
+
+        return 'success';
+      }
+
+      throw new Error('Google sign-in did not return a valid session.');
+    } catch (error) {
+      set({ error: getErrorMessage(error) });
+      return 'error';
+    } finally {
+      set({ isBusy: false });
+    }
   },
   signInWithEmail: async (email, password) => {
     if (!isSupabaseConfigured) {

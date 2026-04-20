@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { User } from '@supabase/supabase-js';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import {
   Alert,
@@ -12,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import useSWR from 'swr';
 
 import {
   getAuthorCuratedFeeds,
@@ -47,56 +48,39 @@ function normalizeUrl(value: string) {
   return `https://${trimmedValue}`;
 }
 
-type FeedListPage = 'rss-links' | 'categories' | 'curated';
+export type FeedListPage = 'rss-links' | 'categories' | 'curated';
 
 type FeedListScreenProps = {
+  addFeedSignal?: number;
+  onPageChange?: (page: FeedListPage) => void;
   user: User;
 };
 
-export function FeedListScreen({ user }: FeedListScreenProps) {
-  const [authorCuratedError, setAuthorCuratedError] = useState('');
-  const [authorCuratedFeeds, setAuthorCuratedFeeds] = useState<AuthorCuratedFeed[]>([]);
+export function FeedListScreen({ addFeedSignal = 0, onPageChange, user }: FeedListScreenProps) {
   const [categoryInput, setCategoryInput] = useState('');
-  const [feedLinks, setFeedLinks] = useState<FeedLink[]>([]);
   const [feedTitle, setFeedTitle] = useState('');
   const [feedUrl, setFeedUrl] = useState('');
   const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activePage, setActivePage] = useState<FeedListPage>('rss-links');
-
-  useEffect(() => {
-    async function loadFeedData() {
-      const [userFeedResult, authorCuratedResult] = await Promise.allSettled([
-        getUserFeedLinks(user),
-        getAuthorCuratedFeeds(),
-      ]);
-
-      if (userFeedResult.status === 'fulfilled') {
-        setFeedLinks(userFeedResult.value);
-      } else {
-        setFeedLinks([]);
-      }
-
-      if (authorCuratedResult.status === 'fulfilled') {
-        setAuthorCuratedFeeds(authorCuratedResult.value);
-        setAuthorCuratedError('');
-      } else {
-        setAuthorCuratedFeeds([]);
-        setAuthorCuratedError(
-          authorCuratedResult.reason instanceof Error
-            ? authorCuratedResult.reason.message
-            : 'Unable to load author curated feeds.'
-        );
-      }
-
-      setIsLoading(false);
-    }
-
-    void loadFeedData();
-  }, [user]);
+  const lastAddFeedSignalRef = useRef(addFeedSignal);
+  const {
+    data: feedLinks = [],
+    error: feedLinksError,
+    isLoading: isFeedLinksLoading,
+    mutate: mutateFeedLinks,
+  } = useSWR<FeedLink[]>(['user-feed-links', user.id], () => getUserFeedLinks(user), {
+    revalidateOnFocus: false,
+  });
+  const {
+    data: authorCuratedFeeds = [],
+    error: authorCuratedError,
+    isLoading: isAuthorCuratedLoading,
+  } = useSWR<AuthorCuratedFeed[]>(['author-curated-feeds'], getAuthorCuratedFeeds, {
+    revalidateOnFocus: false,
+  });
 
   function openAddModal() {
     setCategoryInput('');
@@ -130,10 +114,26 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
     setIsCategoryMenuOpen(true);
   }
 
-  const feedCategories = getFeedCategories(feedLinks);
+  const feedCategories = useMemo(() => getFeedCategories(feedLinks), [feedLinks]);
   const filteredCategories = feedCategories.filter((category) =>
     category.toLowerCase().includes(categoryInput.trim().toLowerCase())
   );
+
+  useEffect(() => {
+    onPageChange?.(activePage);
+  }, [activePage, onPageChange]);
+
+  useEffect(() => {
+    if (addFeedSignal === lastAddFeedSignalRef.current) {
+      return;
+    }
+
+    lastAddFeedSignalRef.current = addFeedSignal;
+
+    if (activePage === 'rss-links') {
+      openAddModal();
+    }
+  }, [activePage, addFeedSignal]);
 
   async function handleSaveFeed() {
     const normalizedCategory = categoryInput.trim();
@@ -179,7 +179,9 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
           url: normalizedUrl,
         });
 
-        setFeedLinks((currentLinks) => [createdLink, ...currentLinks]);
+        await mutateFeedLinks((currentLinks = []) => [createdLink, ...currentLinks], {
+          revalidate: false,
+        });
       } else {
         const updatedLink = await updateUserFeedLink(user, {
           category: normalizedCategory,
@@ -188,8 +190,12 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
           url: normalizedUrl,
         });
 
-        setFeedLinks((currentLinks) =>
-          currentLinks.map((link) => (link.id === editingLinkId ? updatedLink : link))
+        await mutateFeedLinks(
+          (currentLinks = []) =>
+            currentLinks.map((link) => (link.id === editingLinkId ? updatedLink : link)),
+          {
+            revalidate: false,
+          }
         );
       }
 
@@ -214,7 +220,12 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
         ]);
         await setStoredReadArticleIds(user.id, nextReadArticleIds);
       }
-      setFeedLinks((currentLinks) => currentLinks.filter((link) => link.id !== linkId));
+      await mutateFeedLinks(
+        (currentLinks = []) => currentLinks.filter((link) => link.id !== linkId),
+        {
+          revalidate: false,
+        }
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to delete feed link.';
       Alert.alert('Delete failed', message);
@@ -236,8 +247,11 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
         );
         await setStoredReadArticleIds(user.id, nextReadArticleIds);
       }
-      setFeedLinks((currentLinks) =>
-        currentLinks.filter((link) => link.category !== categoryToDelete)
+      await mutateFeedLinks(
+        (currentLinks = []) => currentLinks.filter((link) => link.category !== categoryToDelete),
+        {
+          revalidate: false,
+        }
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to delete category.';
@@ -255,7 +269,9 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
         url: feed.url,
       });
 
-      setFeedLinks((currentLinks) => [createdLink, ...currentLinks]);
+      await mutateFeedLinks((currentLinks = []) => [createdLink, ...currentLinks], {
+        revalidate: false,
+      });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unable to add this curated feed to your list.';
@@ -265,7 +281,17 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
     }
   }
 
-  const savedFeedUrlSet = new Set(feedLinks.map((link) => link.url));
+  const savedFeedUrlSet = useMemo(() => new Set(feedLinks.map((link) => link.url)), [feedLinks]);
+  const authorCuratedErrorMessage = authorCuratedError
+    ? authorCuratedError instanceof Error
+      ? authorCuratedError.message
+      : 'Unable to load author curated feeds.'
+    : '';
+  const feedLinksErrorMessage = feedLinksError
+    ? feedLinksError instanceof Error
+      ? feedLinksError.message
+      : 'Unable to load feed links.'
+    : '';
 
   return (
     <>
@@ -323,22 +349,21 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
         </View>
 
         {activePage === 'rss-links' ? (
-          feedLinks.length === 0 ? (
+          isFeedLinksLoading ? null : feedLinks.length === 0 ? (
             <View className="flex-1 items-center justify-center px-2">
               <View className="items-center">
                 <Text className="mt-3 text-center text-2xl font-bold tracking-tight text-stone-950">
                   No RSS feed link added
                 </Text>
               </View>
-
-              <TouchableOpacity
-                activeOpacity={0.9}
-                className="mt-6 h-14 items-center justify-center rounded-2xl bg-stone-900 px-6"
-                onPress={openAddModal}>
-                <Text className="text-sm font-semibold uppercase tracking-wider text-[#f5f1e8]">
-                  Click To Add
+              {feedLinksErrorMessage ? (
+                <Text className="mt-3 text-center text-sm leading-6 text-red-700">
+                  {feedLinksErrorMessage}
                 </Text>
-              </TouchableOpacity>
+              ) : null}
+              <Text className="mt-4 text-center text-sm leading-6 text-stone-600">
+                Use the `+` action in the bottom bar to add a feed.
+              </Text>
             </View>
           ) : (
             <ScrollView bounces={false} contentContainerClassName="gap-3 pb-6">
@@ -382,20 +407,10 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
                   </View>
                 </View>
               ))}
-
-              <TouchableOpacity
-                activeOpacity={0.9}
-                className="mt-2 h-14 flex-row items-center justify-center rounded-2xl border border-stone-300 bg-[#f1eadf] px-5"
-                onPress={openAddModal}>
-                <Ionicons color="#44403c" name="add" size={18} />
-                <Text className="ml-2 text-sm font-semibold uppercase tracking-wider text-stone-700">
-                  Add Feed
-                </Text>
-              </TouchableOpacity>
             </ScrollView>
           )
         ) : activePage === 'curated' ? (
-          authorCuratedFeeds.length === 0 ? (
+          isAuthorCuratedLoading ? null : authorCuratedFeeds.length === 0 ? (
             <View className="flex-1 items-center justify-center px-2">
               <Text className="text-center text-2xl font-bold tracking-tight text-stone-950">
                 No curated feeds added
@@ -403,16 +418,16 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
               <Text className="mt-3 text-center text-sm leading-6 text-stone-600">
                 Add rows in the `authors_curated_feeds` Supabase table and they will appear here.
               </Text>
-              {authorCuratedError ? (
+              {authorCuratedErrorMessage ? (
                 <Text className="mt-3 text-center text-sm leading-6 text-red-700">
-                  {authorCuratedError}
+                  {authorCuratedErrorMessage}
                 </Text>
               ) : null}
             </View>
           ) : (
             <ScrollView bounces={false} contentContainerClassName="gap-3 pb-6">
-              {authorCuratedError ? (
-                <Text className="text-sm leading-6 text-red-700">{authorCuratedError}</Text>
+              {authorCuratedErrorMessage ? (
+                <Text className="text-sm leading-6 text-red-700">{authorCuratedErrorMessage}</Text>
               ) : null}
 
               {authorCuratedFeeds.map((feed) => {
@@ -479,7 +494,7 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
 
                 <TouchableOpacity
                   activeOpacity={0.9}
-                  className="ml-4 h-11 items-center justify-center rounded-xl border border-stone-900 bg-stone-900 px-4"
+                  className="ml-4 h-11 w-11 items-center justify-center rounded-xl border border-stone-900 bg-stone-900"
                   onPress={() =>
                     Alert.alert(
                       'Delete category',
@@ -496,9 +511,7 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
                       ]
                     )
                   }>
-                  <Text className="text-xs font-semibold uppercase tracking-wider text-[#f5f1e8]">
-                    Delete
-                  </Text>
+                  <Ionicons color="#f5f1e8" name="trash-outline" size={18} />
                 </TouchableOpacity>
               </View>
             ))}
@@ -580,51 +593,56 @@ export function FeedListScreen({ user }: FeedListScreenProps) {
                   </View>
 
                   {isCategoryMenuOpen && filteredCategories.length > 0 ? (
-                    <View className="rounded-2xl border border-stone-300 bg-[#f6f0e5] p-2">
-                      {filteredCategories.map((category) => (
-                        <TouchableOpacity
-                          key={category}
-                          activeOpacity={0.9}
-                          className="h-11 justify-center rounded-xl px-3"
-                          onPress={() => {
-                            setCategoryInput(category);
-                            setIsCategoryMenuOpen(false);
-                          }}>
-                          <Text className="text-sm font-medium text-stone-800">{category}</Text>
-                        </TouchableOpacity>
-                      ))}
+                    <View className="rounded-2xl border border-stone-300 bg-[#f6f0e5] p-1.5">
+                      <ScrollView
+                        bounces={false}
+                        nestedScrollEnabled
+                        showsVerticalScrollIndicator={false}
+                        style={{ height: 5 * 30 }}>
+                        {filteredCategories.map((category) => (
+                          <TouchableOpacity
+                            key={category}
+                            activeOpacity={0.9}
+                            className="justify-center rounded-xl px-3"
+                            style={{ height: 30 }}
+                            onPress={() => {
+                              setCategoryInput(category);
+                              setIsCategoryMenuOpen(false);
+                            }}>
+                            <Text className="text-sm font-medium text-stone-800">{category}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
                     </View>
                   ) : null}
                 </View>
 
-                <TouchableOpacity
-                  activeOpacity={0.9}
-                  className={`h-14 items-center justify-center rounded-2xl px-5 ${
-                    isSaving ? 'bg-stone-500' : 'bg-stone-900'
-                  }`}
-                  disabled={isSaving}
-                  onPress={handleSaveFeed}>
-                  <Text className="text-sm font-semibold uppercase tracking-wider text-[#f5f1e8]">
-                    {isSaving ? 'Saving' : editingLinkId ? 'Save Feed' : 'Add Feed'}
-                  </Text>
-                </TouchableOpacity>
+                <View className="flex-row gap-3">
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    className="h-14 flex-1 items-center justify-center rounded-2xl border border-stone-300 bg-[#f6f0e5] px-5"
+                    disabled={isSaving}
+                    onPress={closeModal}>
+                    <Ionicons color="#6f5d4f" name="close-outline" size={20} />
+                  </TouchableOpacity>
 
-                <TouchableOpacity
-                  activeOpacity={0.9}
-                  className="h-14 items-center justify-center rounded-2xl border border-stone-300 bg-[#f6f0e5] px-5"
-                  disabled={isSaving}
-                  onPress={closeModal}>
-                  <Text className="text-sm font-semibold uppercase tracking-wider text-stone-700">
-                    Cancel
-                  </Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    className={`h-14 flex-1 items-center justify-center rounded-2xl px-5 ${
+                      isSaving ? 'bg-stone-500' : 'bg-stone-900'
+                    }`}
+                    disabled={isSaving}
+                    onPress={handleSaveFeed}>
+                    <Ionicons color="#f5f1e8" name="save-outline" size={20} />
+                  </TouchableOpacity>
+                </View>
               </KeyboardAwareScrollView>
             </Pressable>
           </View>
         </View>
       </Modal>
 
-      <LoadingModal visible={isLoading || isSaving} />
+      <LoadingModal visible={isFeedLinksLoading || isAuthorCuratedLoading || isSaving} />
     </>
   );
 }

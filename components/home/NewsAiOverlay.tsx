@@ -164,6 +164,7 @@ export function NewsAiOverlay({
 
                 {messages.map((message) => {
                   const isUserMessage = message.role === 'user';
+                  const isThinkingMessage = !isUserMessage && isSending && !message.content.trim();
 
                   return (
                     <View
@@ -177,19 +178,11 @@ export function NewsAiOverlay({
                         className={`text-sm leading-6 ${
                           isUserMessage ? 'text-[#f5ead6]' : 'text-[#43342a]'
                         }`}>
-                        {message.content}
+                        {isThinkingMessage ? 'Thinking…' : message.content}
                       </Text>
                     </View>
                   );
                 })}
-
-                {isSending && messages.length > 0 ? (
-                  <View className="self-start rounded-3xl border border-[#e5d4b5] bg-[#fff9ef] px-4 py-3">
-                    <Text className="text-sm leading-6 text-[#59483a]">
-                      Thinking about this story...
-                    </Text>
-                  </View>
-                ) : null}
               </ScrollView>
             </View>
 

@@ -12,7 +12,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { BasicScreenCard } from './BasicScreenCard';
 import { BottomNavBar, type NavItem } from './BottomNavBar';
-import { FeedListScreen } from './FeedListScreen';
+import { FeedListScreen, type FeedListPage } from './FeedListScreen';
 import { NewsScreen } from './NewsScreen';
 import { UserSettingsScreen } from './UserSettingsScreen';
 
@@ -23,7 +23,12 @@ type HomeScreenProps = {
 export function HomeScreen({ user: _user }: HomeScreenProps) {
   const [activeTab, setActiveTab] = useState<NavItem>('Home');
   const [aiOpenSignal, setAiOpenSignal] = useState(0);
+  const [addFeedSignal, setAddFeedSignal] = useState(0);
+  const [feedListPage, setFeedListPage] = useState<FeedListPage>('rss-links');
   const isAiEnabled = activeTab === 'Home' || activeTab === 'Feed';
+  const isAddFeedEnabled = activeTab === 'Feed List' && feedListPage === 'rss-links';
+  const isCenterActionEnabled = isAiEnabled || isAddFeedEnabled;
+  const centerIcon = activeTab === 'Feed List' ? 'add' : 'sparkles';
   const orderedTabs: NavItem[] = ['Home', 'Feed', 'Feed List', 'Settings'];
   const previousTabRef = useRef<NavItem>('Home');
 
@@ -31,6 +36,8 @@ export function HomeScreen({ user: _user }: HomeScreenProps) {
     if (tab === 'AI') {
       if (isAiEnabled) {
         setAiOpenSignal((currentValue) => currentValue + 1);
+      } else if (isAddFeedEnabled) {
+        setAddFeedSignal((currentValue) => currentValue + 1);
       }
 
       return;
@@ -54,7 +61,9 @@ export function HomeScreen({ user: _user }: HomeScreenProps) {
     }
 
     if (activeTab === 'Feed List') {
-      return <FeedListScreen user={_user} />;
+      return (
+        <FeedListScreen addFeedSignal={addFeedSignal} onPageChange={setFeedListPage} user={_user} />
+      );
     }
 
     return (
@@ -79,7 +88,12 @@ export function HomeScreen({ user: _user }: HomeScreenProps) {
           {renderActiveScreen()}
         </Animated.View>
       </Animated.View>
-      <BottomNavBar activeTab={activeTab} aiEnabled={isAiEnabled} onTabPress={handleNavPress} />
+      <BottomNavBar
+        activeTab={activeTab}
+        centerEnabled={isCenterActionEnabled}
+        centerIcon={centerIcon}
+        onTabPress={handleNavPress}
+      />
     </View>
   );
 }

@@ -3,14 +3,15 @@ import type { User } from '@supabase/supabase-js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
-  Linking,
   Modal,
   PanResponder,
+  Pressable,
   ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import useSWR from 'swr';
 import Animated, {
   Easing,
   FadeInDown,
@@ -44,6 +45,7 @@ import {
 } from '../../lib/rss-feed-service';
 import { LoadingModal } from '../LoadingModal';
 import { NewsAiOverlay } from './NewsAiOverlay';
+import { NewsWebOverlay } from './NewsWebOverlay';
 
 type NewsScreenProps = {
   aiOpenSignal?: number;
@@ -52,6 +54,11 @@ type NewsScreenProps = {
 };
 
 type ReadStatusFilter = 'All' | 'Unread' | 'Read';
+type NewsRemoteData = {
+  articles: NewsArticle[];
+  failures: FeedLoadFailure[];
+  feedLinks: FeedLink[];
+};
 
 const dateLabelFormatter = new Intl.DateTimeFormat('en-US', {
   month: 'short',
@@ -111,6 +118,40 @@ function createNewsAiMessage(role: 'assistant' | 'user', content: string): NewsA
   };
 }
 
+async function getNewsRemoteData(user: User): Promise<NewsRemoteData> {
+  try {
+    const links = await getUserFeedLinks(user);
+
+    if (links.length === 0) {
+      return {
+        articles: [],
+        failures: [],
+        feedLinks: links,
+      };
+    }
+
+    const result = await fetchNewsArticles(links);
+
+    return {
+      articles: result.articles,
+      failures: result.failures,
+      feedLinks: links,
+    };
+  } catch {
+    return {
+      articles: [],
+      failures: [
+        {
+          message: 'Unable to load your feed list.',
+          title: 'Feed list',
+          url: 'Saved RSS feeds',
+        },
+      ],
+      feedLinks: [],
+    };
+  }
+}
+
 function getCategoryEnteringAnimation(direction: 'previous' | 'next') {
   return direction === 'next'
     ? FadeInRight.duration(180)
@@ -157,11 +198,7 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
   const [activeReadFilter, setActiveReadFilter] = useState<ReadStatusFilter>(
     unreadOnly ? 'Unread' : 'All'
   );
-  const [articles, setArticles] = useState<NewsArticle[]>([]);
   const [currentArticleIndex, setCurrentArticleIndex] = useState(0);
-  const [feedLinks, setFeedLinks] = useState<FeedLink[]>([]);
-  const [failures, setFailures] = useState<FeedLoadFailure[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isDateMenuOpen, setIsDateMenuOpen] = useState(false);
   const [isReadMenuOpen, setIsReadMenuOpen] = useState(false);
   const [isReadStatusReady, setIsReadStatusReady] = useState(false);
@@ -172,6 +209,7 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
   const [isAiKeyMissingNoticeOpen, setIsAiKeyMissingNoticeOpen] = useState(false);
   const [isAiOverlayOpen, setIsAiOverlayOpen] = useState(false);
   const [isAiSending, setIsAiSending] = useState(false);
+  const [isWebOverlayOpen, setIsWebOverlayOpen] = useState(false);
   const [readArticleIds, setReadArticleIds] = useState<string[]>([]);
   const articleScrollRef = useRef<ScrollView | null>(null);
   const articleScrollOffsetYRef = useRef(0);
@@ -179,71 +217,48 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
   const articleScrollContentHeightRef = useRef(0);
   const articleTransitionDirectionRef = useRef<'previous' | 'next'>('next');
   const categoryTransitionDirectionRef = useRef<'previous' | 'next'>('next');
+  const aiRequestAbortControllerRef = useRef<AbortController | null>(null);
   const contentTransitionKindRef = useRef<'article' | 'category'>('article');
   const lastAiOpenSignalRef = useRef(aiOpenSignal);
   const lastAiInitializedArticleIdRef = useRef<string | null>(null);
   const previousArticleIdRef = useRef<string | null>(null);
+  const {
+    data: newsRemoteData,
+    isLoading: isNewsRemoteDataLoading,
+    isValidating: isNewsRemoteDataValidating,
+    mutate: mutateNewsRemoteData,
+  } = useSWR(['news-remote-data', user.id], () => getNewsRemoteData(user), {
+    revalidateOnFocus: false,
+  });
+  const feedLinks = useMemo(() => newsRemoteData?.feedLinks ?? [], [newsRemoteData]);
+  const articles = useMemo(() => newsRemoteData?.articles ?? [], [newsRemoteData]);
+  const failures = useMemo(() => newsRemoteData?.failures ?? [], [newsRemoteData]);
 
-  const loadNews = useCallback(async () => {
-    setIsLoading(true);
+  useEffect(() => {
+    const activeFeedUrls = feedLinks.map((link) => link.url);
+    const failedFeedUrlSet = new Set(failures.map((failure) => failure.url));
+    const validArticleIdsByFeedUrl = new Map<string, Set<string>>();
 
-    try {
-      const links = await getUserFeedLinks(user);
-      setFeedLinks(links);
-
-      if (links.length === 0) {
-        setArticles([]);
-        setFailures([]);
-        setCurrentArticleIndex(0);
+    articles.forEach((article) => {
+      if (failedFeedUrlSet.has(article.sourceUrl)) {
         return;
       }
 
-      const result = await fetchNewsArticles(links);
-      const activeFeedUrls = links.map((link) => link.url);
-      const failedFeedUrlSet = new Set(result.failures.map((failure) => failure.url));
-      const validArticleIdsByFeedUrl = new Map<string, Set<string>>();
+      const articleIdsForFeed =
+        validArticleIdsByFeedUrl.get(article.sourceUrl) ?? new Set<string>();
+      articleIdsForFeed.add(article.id);
+      validArticleIdsByFeedUrl.set(article.sourceUrl, articleIdsForFeed);
+    });
 
-      result.articles.forEach((article) => {
-        if (failedFeedUrlSet.has(article.sourceUrl)) {
-          return;
-        }
-
-        const articleIdsForFeed =
-          validArticleIdsByFeedUrl.get(article.sourceUrl) ?? new Set<string>();
-        articleIdsForFeed.add(article.id);
-        validArticleIdsByFeedUrl.set(article.sourceUrl, articleIdsForFeed);
-      });
-
-      setReadArticleIds((currentIds) =>
-        pruneReadArticleIdsForCurrentFeeds(
-          currentIds.filter((articleId) =>
-            activeFeedUrls.some((feedUrl) => articleId.startsWith(`${feedUrl}::`))
-          ),
-          validArticleIdsByFeedUrl
-        )
-      );
-      setArticles(result.articles);
-      setFailures(result.failures);
-      setCurrentArticleIndex(0);
-    } catch {
-      setFeedLinks([]);
-      setArticles([]);
-      setFailures([
-        {
-          message: 'Unable to load your feed list.',
-          title: 'Feed list',
-          url: 'Saved RSS feeds',
-        },
-      ]);
-      setCurrentArticleIndex(0);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    void loadNews();
-  }, [loadNews]);
+    setReadArticleIds((currentIds) =>
+      pruneReadArticleIdsForCurrentFeeds(
+        currentIds.filter((articleId) =>
+          activeFeedUrls.some((feedUrl) => articleId.startsWith(`${feedUrl}::`))
+        ),
+        validArticleIdsByFeedUrl
+      )
+    );
+  }, [articles, failures, feedLinks]);
 
   useEffect(() => {
     let isMounted = true;
@@ -385,6 +400,7 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
   useEffect(() => {
     articleScrollRef.current?.scrollTo({ animated: false, y: 0 });
     articleScrollOffsetYRef.current = 0;
+    setIsWebOverlayOpen(false);
   }, [activeCategory, currentArticle?.id]);
 
   useEffect(() => {
@@ -401,6 +417,8 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
       setIsAiSending(false);
       setIsAiConversationReady(false);
       lastAiInitializedArticleIdRef.current = null;
+      aiRequestAbortControllerRef.current?.abort();
+      aiRequestAbortControllerRef.current = null;
 
       if (previousArticleId && previousArticleId !== nextArticleId) {
         await removeStoredNewsAiMessages(user.id, previousArticleId);
@@ -466,12 +484,20 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
       const pendingUserMessage = trimmedUserMessage
         ? createNewsAiMessage('user', trimmedUserMessage)
         : null;
+      const pendingAssistantMessage = createNewsAiMessage('assistant', '');
+      const abortController = new AbortController();
 
       setAiError('');
       setIsAiSending(true);
+      aiRequestAbortControllerRef.current?.abort();
+      aiRequestAbortControllerRef.current = abortController;
 
+      setAiMessages((currentMessages) => [
+        ...currentMessages,
+        ...(pendingUserMessage ? [pendingUserMessage] : []),
+        pendingAssistantMessage,
+      ]);
       if (pendingUserMessage) {
-        setAiMessages((currentMessages) => [...currentMessages, pendingUserMessage]);
         setAiInput('');
       }
 
@@ -479,6 +505,18 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
         const assistantReply = await getNewsAssistantReply({
           article: currentArticle,
           messages: priorMessages,
+          onDelta: (content) => {
+            if (previousArticleIdRef.current !== requestArticleId) {
+              return;
+            }
+
+            setAiMessages((currentMessages) =>
+              currentMessages.map((message) =>
+                message.id === pendingAssistantMessage.id ? { ...message, content } : message
+              )
+            );
+          },
+          signal: abortController.signal,
           userMessage: trimmedUserMessage || undefined,
         });
 
@@ -486,21 +524,35 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
           return;
         }
 
-        setAiMessages((currentMessages) => [
-          ...currentMessages,
-          createNewsAiMessage('assistant', assistantReply),
-        ]);
+        setAiMessages((currentMessages) =>
+          currentMessages.map((message) =>
+            message.id === pendingAssistantMessage.id
+              ? { ...message, content: assistantReply }
+              : message
+          )
+        );
       } catch (error) {
+        if (abortController.signal.aborted) {
+          return;
+        }
+
         if (previousArticleIdRef.current !== requestArticleId) {
           return;
         }
 
+        setAiMessages((currentMessages) =>
+          currentMessages.filter((message) => message.id !== pendingAssistantMessage.id)
+        );
         setAiError(
           error instanceof Error ? error.message : 'Unable to get an AI reply for this story.'
         );
       } finally {
         if (previousArticleIdRef.current === requestArticleId) {
           setIsAiSending(false);
+        }
+
+        if (aiRequestAbortControllerRef.current === abortController) {
+          aiRequestAbortControllerRef.current = null;
         }
       }
     },
@@ -623,6 +675,10 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
   const screenSwipeResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => false,
     onMoveShouldSetPanResponder: (_, gestureState) => {
+      if (isDateMenuOpen || isReadMenuOpen) {
+        return false;
+      }
+
       const horizontalDistance = Math.abs(gestureState.dx);
       const verticalDistance = Math.abs(gestureState.dy);
 
@@ -641,6 +697,10 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
       return false;
     },
     onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+      if (isDateMenuOpen || isReadMenuOpen) {
+        return false;
+      }
+
       const horizontalDistance = Math.abs(gestureState.dx);
       const verticalDistance = Math.abs(gestureState.dy);
 
@@ -681,19 +741,17 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
     },
   });
 
-  async function handleOpenInWebView() {
-    const targetUrl = currentArticle?.link;
-
-    if (!targetUrl) {
+  function handleOpenInWebView() {
+    if (!currentArticle?.link) {
       return;
     }
 
-    await Linking.openURL(targetUrl);
+    setIsWebOverlayOpen(true);
   }
 
   return (
     <>
-      <LoadingModal visible={isLoading} />
+      <LoadingModal visible={isNewsRemoteDataLoading || isNewsRemoteDataValidating} />
 
       <View className="flex-1 rounded-3xl border border-[#2e241c] bg-[#f6efdf] p-4">
         <View className="mb-3 flex-row items-center justify-between">
@@ -701,7 +759,7 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
             activeOpacity={0.9}
             className="h-10 w-10 items-center justify-center rounded-xl border border-[#6b5a49] bg-[#efe4d0]"
             onPress={() => {
-              void loadNews();
+              void mutateNewsRemoteData();
             }}>
             <Ionicons color="#2f251d" name="refresh" size={17} />
           </TouchableOpacity>
@@ -715,7 +773,7 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
             }`}
             disabled={!currentArticle?.link}
             onPress={() => {
-              void handleOpenInWebView();
+              handleOpenInWebView();
             }}>
             <Ionicons
               color={currentArticle?.link ? '#f2e6cf' : '#6c5c4d'}
@@ -726,8 +784,18 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
         </View>
 
         <View className="flex-1" {...screenSwipeResponder.panHandlers}>
+          {isDateMenuOpen || isReadMenuOpen ? (
+            <Pressable
+              className="absolute inset-0 z-10"
+              onPress={() => {
+                setIsDateMenuOpen(false);
+                setIsReadMenuOpen(false);
+              }}
+            />
+          ) : null}
+
           {feedLinks.length > 0 ? (
-            <View className="mb-2 items-center gap-1.5">
+            <View className="z-20 mb-2 items-center gap-1.5">
               <View className="flex-row items-center gap-2 self-center">
                 <Animated.View
                   key={activeCategory}
@@ -764,29 +832,35 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
                     </TouchableOpacity>
 
                     {isDateMenuOpen ? (
-                      <View className="absolute right-0 top-10 z-10 min-w-36 rounded-2xl border border-[#d8c8af] bg-[#fbf4e8] p-1.5">
-                        {dateOptions.map((dateOption) => (
-                          <TouchableOpacity
-                            key={dateOption}
-                            activeOpacity={0.9}
-                            className={`rounded-xl px-3 py-2 ${
-                              activeDateFilter === dateOption ? 'bg-[#3a2f26]' : 'bg-transparent'
-                            }`}
-                            onPress={() => {
-                              setActiveDateFilter(dateOption);
-                              setCurrentArticleIndex(0);
-                              setIsDateMenuOpen(false);
-                            }}>
-                            <Text
-                              className={`text-[10px] font-semibold uppercase tracking-[1.6px] ${
-                                activeDateFilter === dateOption
-                                  ? 'text-[#f2e6cf]'
-                                  : 'text-[#8f7e6f]'
-                              }`}>
-                              {dateOption}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
+                      <View className="absolute right-0 top-10 z-20 min-w-36 rounded-2xl border border-[#d8c8af] bg-[#fbf4e8] p-1.5">
+                        <ScrollView
+                          bounces={false}
+                          nestedScrollEnabled
+                          showsVerticalScrollIndicator={false}
+                          style={{ maxHeight: 5 * 32 }}>
+                          {dateOptions.map((dateOption) => (
+                            <TouchableOpacity
+                              key={dateOption}
+                              activeOpacity={0.9}
+                              className={`h-8 justify-center rounded-xl px-3 ${
+                                activeDateFilter === dateOption ? 'bg-[#3a2f26]' : 'bg-transparent'
+                              }`}
+                              onPress={() => {
+                                setActiveDateFilter(dateOption);
+                                setCurrentArticleIndex(0);
+                                setIsDateMenuOpen(false);
+                              }}>
+                              <Text
+                                className={`text-[10px] font-semibold uppercase tracking-[1.6px] ${
+                                  activeDateFilter === dateOption
+                                    ? 'text-[#f2e6cf]'
+                                    : 'text-[#8f7e6f]'
+                                }`}>
+                                {dateOption}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
                       </View>
                     ) : null}
                   </View>
@@ -812,12 +886,12 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
                     </TouchableOpacity>
 
                     {isReadMenuOpen ? (
-                      <View className="absolute right-0 top-10 z-10 min-w-28 rounded-2xl border border-[#d8c8af] bg-[#fbf4e8] p-1.5">
+                      <View className="absolute right-0 top-10 z-20 min-w-28 rounded-2xl border border-[#d8c8af] bg-[#fbf4e8] p-1.5">
                         {(['All', 'Unread', 'Read'] as ReadStatusFilter[]).map((statusOption) => (
                           <TouchableOpacity
                             key={statusOption}
                             activeOpacity={0.9}
-                            className={`rounded-xl px-3 py-2 ${
+                            className={`h-8 justify-center rounded-xl px-3 ${
                               activeReadFilter === statusOption ? 'bg-[#3a2f26]' : 'bg-transparent'
                             }`}
                             onPress={() => {
@@ -1007,6 +1081,12 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
         visible={isAiOverlayOpen}
       />
 
+      <NewsWebOverlay
+        article={currentArticle}
+        onClose={() => setIsWebOverlayOpen(false)}
+        visible={isWebOverlayOpen}
+      />
+
       <Modal
         animationType="fade"
         transparent
@@ -1014,27 +1094,36 @@ export function NewsScreen({ aiOpenSignal = 0, unreadOnly = false, user }: NewsS
         visible={isAiKeyMissingNoticeOpen}>
         <View className="flex-1 items-center justify-center bg-black/35 px-6">
           <View className="w-full max-w-sm rounded-3xl border border-stone-200 bg-[#fbf8f2] px-5 py-5">
-            <Text className="text-xs font-semibold uppercase tracking-[2px] text-stone-500">
-              AI Unavailable
-            </Text>
-            <Text className="mt-2 text-2xl font-bold tracking-tight text-stone-950">
-              Add your OpenAI key in Settings
-            </Text>
-            <Text className="mt-3 text-sm leading-6 text-stone-700">
+            <View className="flex-row items-start justify-between gap-3">
+              <View className="flex-1 flex-row items-start gap-3">
+                <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#2b221c]">
+                  <Ionicons color="#f2e6cf" name="key-outline" size={22} />
+                </View>
+
+                <View className="flex-1">
+                  <Text className="text-xs font-semibold uppercase tracking-[2px] text-stone-500">
+                    AI Unavailable
+                  </Text>
+                  <Text className="mt-2 text-2xl font-bold tracking-tight text-stone-950">
+                    Add your OpenAI key in Settings
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                activeOpacity={0.9}
+                className="h-10 w-10 items-center justify-center rounded-2xl border border-stone-200 bg-[#f6edde]"
+                onPress={() => setIsAiKeyMissingNoticeOpen(false)}>
+                <Ionicons color="#6f5d4f" name="close-outline" size={18} />
+              </TouchableOpacity>
+            </View>
+
+            <Text className="mt-4 text-sm leading-6 text-stone-700">
               AI chat works only after you add an OpenAI key in Settings.
             </Text>
             <Text className="mt-2 text-sm leading-6 text-stone-600">
               Your OpenAI key is stored only locally on this device.
             </Text>
-
-            <TouchableOpacity
-              activeOpacity={0.9}
-              className="mt-5 h-12 items-center justify-center rounded-2xl bg-stone-900 px-4"
-              onPress={() => setIsAiKeyMissingNoticeOpen(false)}>
-              <Text className="text-sm font-semibold uppercase tracking-[1.6px] text-[#f5f1e8]">
-                Close
-              </Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>

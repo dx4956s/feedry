@@ -4,6 +4,9 @@ import type { NewsAiMessage } from './news-ai-chat-storage';
 
 const OPENAI_RESPONSES_API_URL = 'https://api.openai.com/v1/responses';
 const OPENAI_NEWS_CHAT_MODEL = 'gpt-5-mini';
+const MAX_CONTEXT_MESSAGES = 6;
+const MAX_ARTICLE_SUMMARY_LENGTH = 1800;
+const MAX_MESSAGE_CONTENT_LENGTH = 500;
 
 const NEWS_CHAT_INSTRUCTIONS = [
   'You are Feedry AI, an assistant that can discuss only the current news article provided by the app.',
@@ -15,15 +18,28 @@ const NEWS_CHAT_INSTRUCTIONS = [
   'Keep answers concise but useful, with clear structure when it helps.',
 ].join(' ');
 
+function clipText(value: string | null | undefined, maxLength: number) {
+  const normalizedValue = value?.trim() ?? '';
+
+  if (!normalizedValue) {
+    return '';
+  }
+
+  if (normalizedValue.length <= maxLength) {
+    return normalizedValue;
+  }
+
+  return `${normalizedValue.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
 function getArticleContext(article: NewsArticle) {
   return [
     'Current article context:',
     `Title: ${article.title}`,
     `Source: ${article.sourceTitle}`,
-    `Category: ${article.category}`,
-    `Published date: ${article.publishedAt ?? 'Unknown'}`,
-    `Link: ${article.link || 'Unavailable'}`,
-    `Summary: ${article.summary || 'No summary available.'}`,
+    `Category: ${article.category || 'Unknown'}`,
+    `Published: ${article.publishedAt ?? 'Unknown'}`,
+    `Summary: ${clipText(article.summary || 'No summary available.', MAX_ARTICLE_SUMMARY_LENGTH)}`,
   ].join('\n');
 }
 
@@ -37,12 +53,17 @@ function getInitialHiddenPrompt() {
 }
 
 function getConversationTranscript(messages: NewsAiMessage[]) {
-  if (messages.length === 0) {
+  const recentMessages = messages.slice(-MAX_CONTEXT_MESSAGES);
+
+  if (recentMessages.length === 0) {
     return 'No prior conversation yet.';
   }
 
-  return messages
-    .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
+  return recentMessages
+    .map(
+      (message) =>
+        `${message.role.toUpperCase()}: ${clipText(message.content, MAX_MESSAGE_CONTENT_LENGTH)}`
+    )
     .join('\n\n');
 }
 
@@ -97,13 +118,42 @@ function extractOutputText(responsePayload: unknown) {
   return textParts.join('\n').trim();
 }
 
+function parseSseEventChunk(eventChunk: string) {
+  const trimmedChunk = eventChunk.trim();
+
+  if (!trimmedChunk) {
+    return null;
+  }
+
+  const dataLines = trimmedChunk
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trim());
+
+  if (dataLines.length === 0) {
+    return null;
+  }
+
+  const eventData = dataLines.join('\n');
+
+  if (!eventData || eventData === '[DONE]') {
+    return null;
+  }
+
+  return eventData;
+}
+
 export async function getNewsAssistantReply({
   article,
   messages,
+  onDelta,
+  signal,
   userMessage,
 }: {
   article: NewsArticle;
   messages: NewsAiMessage[];
+  onDelta?: (content: string) => void;
+  signal?: AbortSignal;
   userMessage?: string;
 }) {
   const apiKey = await getStoredOpenAiKey();
@@ -128,21 +178,22 @@ export async function getNewsAssistantReply({
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
+    signal,
     body: JSON.stringify({
       model: OPENAI_NEWS_CHAT_MODEL,
       store: false,
+      stream: true,
       instructions: NEWS_CHAT_INSTRUCTIONS,
       input: promptSections.join('\n\n'),
     }),
   });
 
-  const responsePayload = (await response.json()) as
-    | {
-        error?: { message?: string };
-      }
-    | Record<string, unknown>;
-
   if (!response.ok) {
+    const responsePayload = (await response.json()) as
+      | {
+          error?: { message?: string };
+        }
+      | Record<string, unknown>;
     const message =
       responsePayload &&
       typeof responsePayload === 'object' &&
@@ -157,7 +208,78 @@ export async function getNewsAssistantReply({
     throw new Error(message);
   }
 
-  const assistantText = extractOutputText(responsePayload);
+  if (!response.body) {
+    const responsePayload = (await response.json()) as Record<string, unknown>;
+    const assistantText = extractOutputText(responsePayload);
+
+    if (!assistantText) {
+      throw new Error('OpenAI returned an empty response.');
+    }
+
+    onDelta?.(assistantText);
+    return assistantText;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bufferedText = '';
+  let assistantText = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    bufferedText += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+
+    const eventChunks = bufferedText.split('\n\n');
+    bufferedText = eventChunks.pop() ?? '';
+
+    for (const eventChunk of eventChunks) {
+      const parsedEvent = parseSseEventChunk(eventChunk);
+
+      if (!parsedEvent) {
+        continue;
+      }
+
+      let parsedPayload: unknown;
+
+      try {
+        parsedPayload = JSON.parse(parsedEvent);
+      } catch {
+        continue;
+      }
+
+      if (
+        parsedPayload &&
+        typeof parsedPayload === 'object' &&
+        'type' in parsedPayload &&
+        parsedPayload.type === 'response.output_text.delta' &&
+        'delta' in parsedPayload &&
+        typeof parsedPayload.delta === 'string'
+      ) {
+        assistantText += parsedPayload.delta;
+        onDelta?.(assistantText);
+        continue;
+      }
+
+      if (
+        parsedPayload &&
+        typeof parsedPayload === 'object' &&
+        'type' in parsedPayload &&
+        parsedPayload.type === 'error' &&
+        'error' in parsedPayload &&
+        parsedPayload.error &&
+        typeof parsedPayload.error === 'object' &&
+        'message' in parsedPayload.error &&
+        typeof parsedPayload.error.message === 'string'
+      ) {
+        throw new Error(parsedPayload.error.message);
+      }
+    }
+
+    if (done) {
+      break;
+    }
+  }
 
   if (!assistantText) {
     throw new Error('OpenAI returned an empty response.');

@@ -1,10 +1,8 @@
-import { useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import {
   ActivityIndicator,
   Keyboard,
-  Modal,
   Text,
-  TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
@@ -25,29 +23,14 @@ const dateFormatter = new Intl.DateTimeFormat('en-US', {
 export function LoginScreen() {
   const error = useAuthStore((state) => state.error);
   const isBusy = useAuthStore((state) => state.isBusy);
-  const signInWithEmail = useAuthStore((state) => state.signInWithEmail);
-  const signUpWithEmail = useAuthStore((state) => state.signUpWithEmail);
-
-  const [email, setEmail] = useState('');
-  const [isCreatePromptOpen, setIsCreatePromptOpen] = useState(false);
-  const [password, setPassword] = useState('');
+  const signInWithGoogle = useAuthStore((state) => state.signInWithGoogle);
 
   const now = new Date();
   const editionLabel = `${weekdayFormatter.format(now)} Edition`;
   const currentDateLabel = dateFormatter.format(now);
-  const submitLabel = 'Continue';
 
-  async function handleSubmit() {
-    const result = await signInWithEmail(email, password);
-
-    if (result === 'invalid_credentials') {
-      setIsCreatePromptOpen(true);
-    }
-  }
-
-  async function handleCreateAccount() {
-    setIsCreatePromptOpen(false);
-    await signUpWithEmail(email, password);
+  async function handleGoogleSignIn() {
+    await signInWithGoogle();
   }
 
   return (
@@ -161,67 +144,37 @@ export function LoginScreen() {
 
                   <View className="px-4 py-4">
                     <View className="gap-3">
-                      <View className="gap-1.5">
-                        <Text className="text-[10px] font-semibold uppercase tracking-[2px] text-[#7b6858]">
-                          Email Address
-                        </Text>
-                        <TextInput
-                          autoCapitalize="none"
-                          autoCorrect={false}
-                          className="h-12 rounded-2xl border border-[#d8c8af] bg-[#f8f1e4] px-4 text-sm text-[#1f1712]"
-                          keyboardType="email-address"
-                          onChangeText={setEmail}
-                          placeholder="you@newsroom.com"
-                          placeholderTextColor="#8f7e6f"
-                          returnKeyType="next"
-                          value={email}
-                        />
-                      </View>
-
-                      <View className="gap-1.5">
-                        <Text className="text-[10px] font-semibold uppercase tracking-[2px] text-[#7b6858]">
-                          Password
-                        </Text>
-                        <TextInput
-                          autoCapitalize="none"
-                          autoCorrect={false}
-                          className="h-12 rounded-2xl border border-[#d8c8af] bg-[#f8f1e4] px-4 text-sm text-[#1f1712]"
-                          onChangeText={setPassword}
-                          onSubmitEditing={() => {
-                            void handleSubmit();
-                          }}
-                          placeholder="Password"
-                          placeholderTextColor="#8f7e6f"
-                          returnKeyType="go"
-                          secureTextEntry
-                          value={password}
-                        />
-                      </View>
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        className={`h-12 flex-row items-center justify-center gap-2 rounded-2xl border px-5 ${
+                          isBusy || !isSupabaseConfigured
+                            ? 'border-[#d7cbb7] bg-[#efe7d8]'
+                            : 'border-[#cdbca1] bg-[#f8f1e4]'
+                        }`}
+                        disabled={isBusy || !isSupabaseConfigured}
+                        onPress={() => {
+                          void handleGoogleSignIn();
+                        }}>
+                        {isBusy ? (
+                          <ActivityIndicator color="#3a2d22" />
+                        ) : (
+                          <>
+                            <Ionicons color="#927240" name="logo-google" size={18} />
+                            <Text className="text-sm font-semibold tracking-[0.01em] text-[#2b221c]">
+                              Continue with Google
+                            </Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
 
                       {error ? (
                         <Text className="text-xs leading-5 text-rose-700">{error}</Text>
                       ) : null}
 
-                      <View className="mt-1 border-t border-[#d8c8af] pt-3">
-                        <TouchableOpacity
-                          activeOpacity={0.9}
-                          className={`h-12 flex-row items-center justify-center rounded-2xl border px-5 ${
-                            isBusy || !isSupabaseConfigured
-                              ? 'border-stone-300 bg-stone-300'
-                              : 'border-[#2b221c] bg-[#2b221c]'
-                          }`}
-                          disabled={isBusy || !isSupabaseConfigured}
-                          onPress={() => {
-                            void handleSubmit();
-                          }}>
-                          {isBusy ? (
-                            <ActivityIndicator color="#f2e6cf" />
-                          ) : (
-                            <Text className="text-sm font-semibold uppercase tracking-[1.5px] text-[#f2e6cf]">
-                              {submitLabel}
-                            </Text>
-                          )}
-                        </TouchableOpacity>
+                      <View className="rounded-2xl border border-[#d8c8af] bg-[#f6edde] px-4 py-3">
+                        <Text className="text-center text-[11px] leading-5 text-[#6e5a49]">
+                          Sign in with your Google account to use a verified identity in Feedry.
+                        </Text>
                       </View>
                     </View>
                   </View>
@@ -237,44 +190,6 @@ export function LoginScreen() {
           </View>
         </KeyboardAwareScrollView>
       </TouchableWithoutFeedback>
-
-      <Modal animationType="fade" transparent statusBarTranslucent visible={isCreatePromptOpen}>
-        <View className="flex-1 items-center justify-center bg-black/35 px-6">
-          <View className="w-full max-w-sm rounded-3xl border border-stone-200 bg-[#fbf8f2] px-5 py-5">
-            <Text className="text-xs font-semibold uppercase tracking-[2px] text-stone-500">
-              Account
-            </Text>
-            <Text className="mt-2 text-2xl font-bold tracking-tight text-stone-950">
-              User not present
-            </Text>
-            <Text className="mt-3 text-sm leading-6 text-stone-700">
-              No account was found for this email. Create one now and continue into Feedry?
-            </Text>
-
-            <View className="mt-5 flex-row gap-3">
-              <TouchableOpacity
-                activeOpacity={0.9}
-                className="h-12 flex-1 items-center justify-center rounded-2xl border border-stone-300 bg-stone-100 px-4"
-                onPress={() => setIsCreatePromptOpen(false)}>
-                <Text className="text-sm font-semibold uppercase tracking-[1.6px] text-stone-700">
-                  Cancel
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                activeOpacity={0.9}
-                className="h-12 flex-1 items-center justify-center rounded-2xl bg-stone-900 px-4"
-                onPress={() => {
-                  void handleCreateAccount();
-                }}>
-                <Text className="text-sm font-semibold uppercase tracking-[1.6px] text-[#f5f1e8]">
-                  OK
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }

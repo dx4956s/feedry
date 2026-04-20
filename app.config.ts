@@ -11,15 +11,22 @@ const config: ExpoConfig = {
   experiments: {
     tsconfigPaths: true,
   },
-  plugins: ['expo-secure-store'],
+  plugins: [
+    'expo-secure-store',
+    'expo-web-browser',
+    [
+      'expo-splash-screen',
+      {
+        backgroundColor: '#ffffff',
+        image: './assets/splash.png',
+        imageWidth: 240,
+        resizeMode: 'contain',
+      },
+    ],
+  ],
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'light',
-  splash: {
-    image: './assets/splash.png',
-    resizeMode: 'contain',
-    backgroundColor: '#ffffff',
-  },
   assetBundlePatterns: ['**/*'],
   ios: {
     bundleIdentifier: 'com.debuggingmess.feedry',

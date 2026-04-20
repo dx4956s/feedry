@@ -17,11 +17,17 @@ export type NavItem = (typeof navItems)[number]['key'];
 
 type BottomNavBarProps = {
   activeTab: NavItem;
-  aiEnabled: boolean;
+  centerEnabled: boolean;
+  centerIcon: keyof typeof Ionicons.glyphMap;
   onTabPress: (tab: NavItem) => void;
 };
 
-export function BottomNavBar({ activeTab, aiEnabled, onTabPress }: BottomNavBarProps) {
+export function BottomNavBar({
+  activeTab,
+  centerEnabled,
+  centerIcon,
+  onTabPress,
+}: BottomNavBarProps) {
   const insets = useSafeAreaInsets();
   const entranceOpacity = useRef(new Animated.Value(0)).current;
   const entranceTranslateY = useRef(new Animated.Value(30)).current;
@@ -70,7 +76,7 @@ export function BottomNavBar({ activeTab, aiEnabled, onTabPress }: BottomNavBarP
               const isCenterAction = item.key === 'AI';
               const isPassiveItem = passiveItems.includes(item.key);
               const isActiveItem = item.key === activeTab;
-              const isDisabledCenterAction = isCenterAction && !aiEnabled;
+              const isDisabledCenterAction = isCenterAction && !centerEnabled;
 
               return (
                 <TouchableOpacity
@@ -116,7 +122,7 @@ export function BottomNavBar({ activeTab, aiEnabled, onTabPress }: BottomNavBarP
                               : '#352b23'
                           : '#352b23'
                       }
-                      name={item.icon}
+                      name={isCenterAction ? centerIcon : item.icon}
                       size={isCenterAction ? 28 : 18}
                     />
                   </View>
